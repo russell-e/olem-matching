@@ -12,13 +12,15 @@ library(tidyr)
 
 # Clean data -----
 
-source("gdrive/OLEM/function_clean_raw_data_rstudio.R")
+source("G:/OLEM/function_clean_raw_data_local.R")
 
 cleaned_data <- clean_raw_data()
 
 frp <- cleaned_data$frp
 rmp <- cleaned_data$rmp
 rcra <- cleaned_data$rcra
+rm(cleaned_data)
+gc()
 
 # frp_ids <-
 #   frp %>%
@@ -68,6 +70,7 @@ rm(frp, rmp, rcra)
 ## FRP and RMP ----
 facility_A <- frp_matching
 facility_B <- rcra_matching
+rm(frp_matching, rmp_matching, rcra_matching)
 
 suffix_A <- "_A"
 suffix_B <- "_B"
@@ -117,9 +120,10 @@ exact_matches <-
     match_type == "exact_name_geog" ~0.9,
     match_type == "exact_address" ~ 0.98,
     TRUE ~ NA_real_)) %>%
-  select(order(names(.)), -priority) %>%
-  glimpse()
-rm(exact_name_address_matches, exact_name_matches_geog_verified, exact_address_matches)
+  select(order(names(.)), -priority) 
+
+rm(exact_name_address_matches, exact_address_matches, exact_name_matches_geog_verified)
+gc()
 
 ### Identify fuzzy matches ------
 
@@ -156,27 +160,28 @@ fac_B_block4 <-
   facility_B %>%
   mutate(block = paste(state, word(name, 1)))
 
+gc()
+
 # aggregate fuzzy match candidate
 c1 <- inner_join(fac_A_block1, fac_B_block1, by = "block", suffix = c(suffix_A, suffix_B))
+rm(fac_A_block1, fac_B_block1)
 c2 <- inner_join(fac_A_block2, fac_B_block2, by = "block", suffix = c(suffix_A, suffix_B))
+rm(fac_A_block2, fac_B_block2)
 c3 <- inner_join(fac_A_block3, fac_B_block3, by = "block", suffix = c(suffix_A, suffix_B))
+rm(fac_A_block3, fac_B_block3)
 c4 <- inner_join(fac_A_block4, fac_B_block4, by = "block", suffix = c(suffix_A, suffix_B))
+rm(fac_A_block4, fac_B_block4)
 
-candidates <- 
+gc()
+
+candidates_scores <- 
   bind_rows(c1, c2, c3, c4) %>%
   distinct(facility_id_A, facility_id_B, .keep_all = TRUE) %>%
   # split address into street number and street
   mutate(street_num_A = str_extract(addr_A, "^\\d+"),
          street_num_B = str_extract(addr_B, "^\\d+"),
          street_name_A = str_trim(str_remove(addr_A, "^\\d+\\s*")),
-         street_name_B = str_trim(str_remove(addr_B, "^\\d+\\s*"))) %>%
-  glimpse()
-rm(c1, c2, c3, c4)
-
-# assign candidate scores based on fuzzy and direct matches 
-candidates_scores <- 
-  candidates %>%
-  mutate(
+         street_name_B = str_trim(str_remove(addr_B, "^\\d+\\s*")),
     has_coords = has_coordinates_A & has_coordinates_B,
     # fuzzy matching scores
     name_sim = stringsim(name_A, name_B, method = "jw"),
@@ -207,11 +212,12 @@ candidates_scores <-
     dist_score = if_else(has_coords, exp(-dist_m / 5000), NA_real_),
     # data availability flags
     has_state = !is.na(state_match),
-    has_city = !is.na(city_match)) %>%
-  glimpse()
-rm(candidates)
+    has_city = !is.na(city_match))
 
-candidates_final_scores <-
+rm(c1, c2, c3, c4)
+gc()
+
+fuzzy_matches <-
   candidates_scores %>%
   mutate(
     # summed street and geography scores
@@ -228,47 +234,15 @@ candidates_final_scores <-
       0.30 * street_score +
       0.15 * if_else(has_coords, dist_score, 0) +
       0.05 * if_else(geo_available, geo_score, 0),
-    confidence_score = total_raw / total_sum) %>%
-  glimpse()
+    confidence_score = total_raw / total_sum,
+    match_type = case_when(
+      confidence_score >= 0.9 ~ "fuzzy_high_confidence",
+      confidence_score >= 0.85 ~ "fuzzy_review",
+      TRUE ~ "unmatched")) %>%
+  filter(confidence_score >= 0.85)
+
 rm(candidates_scores)
-
-# assign match type to fuzzy matches
-
-fuzzy_matches <-
-  candidates_final_scores %>%
-  mutate(match_type = case_when(
-    confidence_score >= 0.9 ~ "fuzzy_high_confidence",
-    confidence_score >= 0.85 ~ "fuzzy_review",
-  TRUE ~ "unmatched")) %>%
-  filter(confidence_score >= 0.85) %>%
-  glimpse()
-rm(candidates_final_score)
-
-# fuzzy_matches_qa <-
-#   fuzzy_matches %>%
-#   select(facility_id_A, facility_id_B,
-#          confidence_score,
-#          match_type,
-#          name_sim,
-#          name_A, name_B,
-#          addr_A, addr_B,
-#          street_num_A, street_num_B,
-#          street_num_score,
-#          street_name_A, street_name_B,
-#          street_name_sim,
-#          street_score,
-#          city_A, city_B,
-#          state_A, state_B,
-#          zip_A, zip_B,
-#          geo_score,
-#          dist_score,
-#          latitude_A, latitude_B,
-#          longitude_A, longitude_B,
-#          epa_facility_id,
-#          other_epa_facility_id,
-#          frp_id
-#   ) %>%
-#   arrange(desc(confidence_score))
+gc()
 
 ### Combine exact matches with fuzzy matches ------
 
@@ -289,8 +263,8 @@ all_matches <-
          longitude_A, longitude_B,
          epa_facility_id,
          other_epa_facility_id,
-         frp_id) %>%
-  glimpse()
+         frp_id) 
+
 rm(fuzzy_matches, exact_matches)
 
 # pick exact over fuzzy match if duplicates exist based on confidence score
@@ -299,8 +273,8 @@ best_matches <-
   group_by(facility_id_A, facility_id_B) %>%
   slice_max(confidence_score, with_ties = FALSE) %>%
   arrange(facility_id_A, facility_id_B) %>%
-  ungroup() %>%
-  glimpse()
+  ungroup()
+
 rm(all_matches)
 
 # filter matches to those exceeding 85%
@@ -309,11 +283,12 @@ accepted_matches <-
   mutate(match_category = case_when(
              str_detect(match_type, "exact") ~ "exact",
              str_detect(match_type, "fuzzy") ~ "fuzzy",
-             TRUE ~ NA_character_)) %>%
-  glimpse()
+             TRUE ~ NA_character_))
 
-# count match category for FRP ID
-accepted_matches_facid <-
+rm(best_matches)
+
+# count match category for ID
+accepted_match_cat_facid_a <-
   accepted_matches %>%
   group_by(facility_id_A) %>%
   arrange(facility_id_A, match_category) %>%
@@ -322,7 +297,17 @@ accepted_matches_facid <-
   count() %>%
   print()
 
-accepted_matches_type_facid <-
+accepted_match_cat_facid_b <-
+  accepted_matches %>%
+  group_by(facility_id_B) %>%
+  arrange(facility_id_B, match_category) %>%
+  slice(1) %>%
+  group_by(match_category) %>%
+  count() %>%
+  print()
+
+# count match type for ID
+accepted_match_type_facid_a <-
   accepted_matches %>%
   group_by(facility_id_A) %>%
   arrange(facility_id_A, match_type) %>%
@@ -331,16 +316,7 @@ accepted_matches_type_facid <-
   count() %>%
   print()
 
-accepted_matches_facid_B <-
-  accepted_matches %>%
-  group_by(facility_id_A) %>%
-  arrange(facility_id_A, match_category) %>%
-  slice(1) %>%
-  group_by(match_category) %>%
-  count() %>%
-  print()
-
-accepted_matches_type_facid_B <-
+accepted_match_type_facid_b <-
   accepted_matches %>%
   group_by(facility_id_B) %>%
   arrange(facility_id_B, match_type) %>%
@@ -356,8 +332,7 @@ final_matches <-
   relocate(match_category, .after = match_type) %>%
   rename_with(~ .x %>% 
                 gsub(suffix_A, final_suffix_A, .) %>%
-                gsub(suffix_B, final_suffix_B, .)) %>%
-  glimpse()
+                gsub(suffix_B, final_suffix_B, .))
 
-write.csv(final_matches,
-          glue::glue("gdrive/OLEM/matches", final_suffix_A, final_suffix_B, ".csv"), row.names = FALSE)
+write.csv(final_matches, 
+          glue::glue("G:/OLEM/output_data/matches", final_suffix_A, final_suffix_B, ".csv"), row.names = FALSE)

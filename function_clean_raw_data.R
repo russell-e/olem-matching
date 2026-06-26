@@ -3,7 +3,7 @@ clean_raw_data <-
     # FRP -----
     ## Import data ----
     print("Cleaning FRP data...")
-    frp_file <- "G:/OLEM/raw_data/SPCC and FRP data.xlsx"
+    frp_file <- "gdrive/OLEM/olem-matching/raw_data/SPCC and FRP data.xlsx"
     frp_sheets <- excel_sheets(frp_file)
     
     ## Load and clean R9 sheet -----
@@ -210,7 +210,7 @@ clean_raw_data <-
     
     print("Cleaning RMP data...")
     ## Import data -----
-    rmp_file <- "G:/OLEM/raw_data/tblS1Facilities.txt"
+    rmp_file <- "gdrive/OLEM/olem-matching/raw_data/tblS1Facilities.txt"
     rmp_data <- read_csv(rmp_file, show_col_types = FALSE, na = c("NA", "")) %>% 
       janitor::clean_names() %>%
       janitor::remove_empty(which = "cols") # remove empty columns
@@ -294,8 +294,8 @@ clean_raw_data <-
     print("Cleaning RCRA data...")
     
     ## Import data -----
-    rcra_1 <-"G:/OLEM/raw_data/HD_REPORTING_0.csv"
-    rcra_2 <- "G:/OLEM/raw_data/HD_REPORTING_1.csv"
+    rcra_1 <-"gdrive/OLEM/olem-matching/raw_data/HD_REPORTING_0.csv"
+    rcra_2 <- "gdrive/OLEM/olem-matching/raw_data/HD_REPORTING_1.csv"
     
     rcra_data_1 <- read_csv(rcra_1, show_col_types = FALSE, na = c("NA", ""))
     rcra_data_2 <- read_csv(rcra_2, show_col_types = FALSE, na = c("NA", ""))

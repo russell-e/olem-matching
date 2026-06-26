@@ -12,7 +12,7 @@ library(tidyr)
 
 # Clean data -----
 
-source("G:/OLEM/function_clean_raw_data.R")
+source("G:/OLEM/function_clean_raw_data_local.R")
 
 cleaned_data <- clean_raw_data()
 
@@ -68,16 +68,24 @@ rcra_matching <-
 rm(frp, rmp, rcra)
 
 ## FRP and RMP ----
-facility_A <- frp_matching
+facility_A <- rmp_matching
 facility_B <- rcra_matching
 rm(frp_matching, rmp_matching, rcra_matching)
 
 suffix_A <- "_A"
 suffix_B <- "_B"
 
-final_suffix_A <- "_frp"
+final_suffix_A <- "_rmp"
 final_suffix_B <- "_rcra"
 ###  Identify exact matches -----
+
+exact_id_matches <-
+  facility_A %>%
+  inner_join(facility_B, by = c("other_epa_facility_id" = "facility_id"), suffix = c(suffix_A, suffix_B)) %>%
+  filter(!is.na(facility_id)) %>%
+  mutate(facility_id_B = other_epa_facility_id,
+         match_type = "exact_id") %>%
+  rename("facility_id{suffix_A}" := "facility_id")
 
 exact_name_address_matches <- 
   facility_A %>%
@@ -96,7 +104,7 @@ exact_name_matches_geog_verified <-
   filter(zip_A == zip_B & city_A == city_B) %>%
   mutate(name_B = name,
          match_type = "exact_name_geog") %>%
-  rename("name_A" = "name") 
+  rename("name{suffix_A}" := "name") 
 
 exact_address_matches <- 
   facility_A %>%
@@ -104,18 +112,20 @@ exact_address_matches <-
   filter(!is.na(addr)) %>%
   mutate(addr_B = addr,
          match_type = "exact_address") %>%
-  rename("addr_A" = "addr")
+  rename("addr{suffix_A}" := "addr")
 
 exact_matches <- 
   bind_rows(
-    exact_name_address_matches %>% mutate(priority = 1),
-    exact_name_matches_geog_verified %>% mutate(priority = 3),
-    exact_address_matches %>% mutate(priority = 2)) %>%
+    exact_id_matches %>% mutate(priority = 1),
+    exact_name_address_matches %>% mutate(priority = 2),
+    exact_name_matches_geog_verified %>% mutate(priority = 4),
+    exact_address_matches %>% mutate(priority = 3)) %>%
   arrange(facility_id_A, priority) %>%
   group_by(facility_id_A, facility_id_B) %>%
   slice(1) %>%
   ungroup() %>%
   mutate(confidence_score = case_when(
+    match_type == "exact_id" ~ 1.0,
     match_type == "exact_name_address" ~ 1.0,
     match_type == "exact_name_geog" ~0.9,
     match_type == "exact_address" ~ 0.98,
@@ -136,9 +146,9 @@ fac_A_block2 <-
   facility_A %>%
   mutate(block = paste(state, city, substr(name, 1, 4)))
 
-fac_A_block3 <- 
-  facility_A %>%
-  mutate(block = paste(state, soundex(name)))
+# fac_A_block3 <- 
+  # facility_A %>%
+  # mutate(block = paste(state, soundex(name)))
 
 fac_A_block4 <- 
   facility_A %>%
@@ -152,9 +162,9 @@ fac_B_block2 <-
   facility_B %>%
   mutate(block = paste(state, city, substr(name, 1, 4)))
 
-fac_B_block3 <- 
-  facility_B %>%
-  mutate(block = paste(state, soundex(name)))
+# fac_B_block3 <- 
+#   facility_B %>%
+#   mutate(block = paste(state, soundex(name)))
 
 fac_B_block4 <- 
   facility_B %>%
@@ -167,15 +177,16 @@ c1 <- inner_join(fac_A_block1, fac_B_block1, by = "block", suffix = c(suffix_A, 
 rm(fac_A_block1, fac_B_block1)
 c2 <- inner_join(fac_A_block2, fac_B_block2, by = "block", suffix = c(suffix_A, suffix_B))
 rm(fac_A_block2, fac_B_block2)
-c3 <- inner_join(fac_A_block3, fac_B_block3, by = "block", suffix = c(suffix_A, suffix_B))
-rm(fac_A_block3, fac_B_block3)
+# c3 <- inner_join(fac_A_block3, fac_B_block3, by = "block", suffix = c(suffix_A, suffix_B))
+# rm(fac_A_block3, fac_B_block3)
 c4 <- inner_join(fac_A_block4, fac_B_block4, by = "block", suffix = c(suffix_A, suffix_B))
 rm(fac_A_block4, fac_B_block4)
 
 gc()
 
 candidates_scores <- 
-  bind_rows(c1, c2, c3, c4) %>%
+  # bind_rows(c1, c2, c3, c4) %>%
+  bind_rows(c1, c2, c4) %>%
   distinct(facility_id_A, facility_id_B, .keep_all = TRUE) %>%
   # split address into street number and street
   mutate(street_num_A = str_extract(addr_A, "^\\d+"),
@@ -263,7 +274,8 @@ all_matches <-
          longitude_A, longitude_B,
          epa_facility_id,
          other_epa_facility_id,
-         frp_id) 
+         # frp_id
+         ) 
 
 rm(fuzzy_matches, exact_matches)
 
@@ -335,4 +347,4 @@ final_matches <-
                 gsub(suffix_B, final_suffix_B, .))
 
 write.csv(final_matches, 
-          glue::glue("G:/OLEM/output_data/matches", final_suffix_A, final_suffix_B, ".csv"), row.names = FALSE)
+          glue::glue("G:/OLEM/output_data/matches", final_suffix_A, final_suffix_B, "_nophon.csv"), row.names = FALSE)

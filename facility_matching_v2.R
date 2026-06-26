@@ -16,7 +16,7 @@ facility_B_name <- "rcra" #rmp or rcra
 
 # Clean data -----
 
-source("gdrive/OLEM/olem-matching/function_clean_raw_data_rstudio.R")
+source("gdrive/OLEM/olem-matching/function_clean_raw_data.R")
 source("gdrive/OLEM/olem-matching/function_clean_rmp_duplicates.R")
 
 cleaned_data <- clean_raw_data()
