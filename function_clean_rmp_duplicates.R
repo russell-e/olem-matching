@@ -6,16 +6,25 @@ remove_rmp_duplicates <- function(rmp) {
     length(unique(na.omit(x))) > 1
   }
   
+  coords <- rmp %>%
+    group_by(epa_facility_id) %>%
+    summarise(
+      latitude = first(latitude),
+      longitude = first(longitude),
+      .groups = "drop"
+    )
+  
   rmp_remove_exact_duplicates <-
     rmp %>%
     # clean other epa facility
     mutate(other_epa_facility_id = str_remove_all(other_epa_facility_id, " "),
            # round lat, lon
-           latitude = round(latitude, 1),
-           longitude = round(longitude, 1),
-           longitude = if_else(longitude > 0, longitude * -1, longitude)) %>%
+           longitude = if_else(longitude > 0, longitude * -1, longitude),
+           latitude_round = round(latitude, 1),
+           longitude_round = round(longitude, 1)
+           ) %>%
     # remove select columns for duplicate identification (most importantly facility ID)
-    select(-facility_id, -company_name, -company_name_2, -latitude_corrected, -longitude_corrected, -postal_code_ext, -street_address_2) %>% 
+    select(-facility_id, -company_name, -company_name_2, -latitude_corrected, -longitude_corrected, -postal_code_ext, -street_address_2, -longitude, -latitude) %>% 
     # remove exact duplicates
     distinct() %>%
     # count non-na rows
@@ -29,7 +38,8 @@ remove_rmp_duplicates <- function(rmp) {
     # create duplicate flag
     mutate(is_duplicate = n() > 1) %>%
     ungroup() %>%
-    select(-non_missing, -conflict_flag)
+    select(-non_missing, -conflict_flag, -longitude_round, -latitude_round) %>%
+    left_join(coords, by = "epa_facility_id")
 
   rmp_rownums <-
     rmp_remove_exact_duplicates %>%
