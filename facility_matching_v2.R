@@ -12,7 +12,7 @@ library(tidyr)
 
 # DEFINE FILES FOR MATCHING - REQUIRES USER INPUT -----
 facility_A_name <- "frp" # frp or rmp
-facility_B_name <- "rmp" #rmp or rcra
+facility_B_name <- "rcra" #rmp or rcra
 
 # Clean data -----
 
@@ -25,17 +25,17 @@ frp <- cleaned_data$frp
 rmp <- cleaned_data$rmp
 rcra <- cleaned_data$rcra
 # rm(cleaned_data)
-# gc()
+gc()
 
 rmp_cleaned_duplicates <- remove_rmp_duplicates(rmp)
 
-rmp_cleaned_duplicates <- 
-  rmp %>%
-  select(-facility_id) %>%
-  rename(name = facility_name,
-         state = state_code,
-         zip = postal_code,
-         addr = street_address_1)
+# rmp_cleaned_duplicates <-
+#   rmp %>%
+#   # select(-facility_id) %>%
+#   rename(name = facility_name,
+#          state = state_code,
+#          zip = postal_code,
+#          addr = street_address_1)
 # rm(rmp)
 
 # number of RMP values that still have duplicates
@@ -78,6 +78,7 @@ rmp_matching <-
   rmp_cleaned_duplicates %>%
   mutate(has_coordinates = !is.na(latitude) & !is.na(longitude)) %>%
   rename("facility_id" = "epa_facility_id") # set epa facility ID to main id
+  # glimpse()
 
 rcra_matching <-
   rcra %>%
@@ -86,12 +87,12 @@ rcra_matching <-
          state = state_code,
          zip = postal_code,
          addr = street_address_1)
-# rm(frp, rmp, rcra)
+rm(frp, rmp, rcra)
 
 ## FRP and RMP ----
 facility_A <- get(paste0(facility_A_name, "_matching"))
 facility_B <- get(paste0(facility_B_name, "_matching"))
-# rm(frp_matching, rmp_matching, rcra_matching)
+rm(frp_matching, rmp_matching, rcra_matching)
 
 suffix_A <- "_A"
 suffix_B <- "_B"
@@ -132,7 +133,7 @@ exact_address_matches <-
   facility_A %>%
   inner_join(facility_B, by = "addr", suffix = c(suffix_A, suffix_B), relationship = "many-to-many") %>%
   filter(!is.na(addr)) %>%
-  # filter(city_A == city_B & state_A == state_B) %>%
+  filter(city_A == city_B & state_A == state_B) %>%
   mutate(addr_B = addr,
          match_type = "exact_address") %>%
   rename("addr{suffix_A}" := "addr")
@@ -154,7 +155,7 @@ if(facility_A_name == "rmp" & facility_B_name == "rcra") {
 
 exact_matches <- 
   exact_matches_bind %>%
-  arrange(facility_id_A, facility_id_B, priority) %>% 
+  arrange(facility_id_A, priority) %>% 
   group_by(facility_id_A, facility_id_B) %>%
   slice(1) %>%
   ungroup() %>%
@@ -166,8 +167,8 @@ exact_matches <-
     TRUE ~ NA_real_)) %>%
   select(order(names(.)), -priority) 
 
-# rm(exact_name_address_matches, exact_address_matches, exact_name_matches_geog_verified)
-# gc()
+rm(exact_name_address_matches, exact_address_matches, exact_name_matches_geog_verified)
+gc()
 
 ### Identify fuzzy matches ------
 
@@ -196,17 +197,17 @@ fac_B_block4 <-
   facility_B %>%
   mutate(block = paste(state, word(name, 1)))
 
-# gc()
+gc()
 
 # aggregate fuzzy match candidate
 c1 <- inner_join(fac_A_block1, fac_B_block1, by = "block", suffix = c(suffix_A, suffix_B))
-# rm(fac_A_block1, fac_B_block1)
+rm(fac_A_block1, fac_B_block1)
 c2 <- inner_join(fac_A_block2, fac_B_block2, by = "block", suffix = c(suffix_A, suffix_B))
-# rm(fac_A_block2, fac_B_block2)
+rm(fac_A_block2, fac_B_block2)
 c4 <- inner_join(fac_A_block4, fac_B_block4, by = "block", suffix = c(suffix_A, suffix_B))
-# rm(fac_A_block4, fac_B_block4)
+rm(fac_A_block4, fac_B_block4)
 
-# gc()
+gc()
 
 if (facility_B_name == "rcra" | facility_B_name == "rmp") {
   
@@ -268,8 +269,8 @@ candidates_scores <-
     has_state = !is.na(state_match),
     has_city = !is.na(city_match))
 
-# rm(c1, c2, c3, c4)
-# gc()
+rm(c1, c2, c3, c4)
+gc()
 
 fuzzy_matches <-
   candidates_scores %>%
@@ -295,8 +296,8 @@ fuzzy_matches <-
       TRUE ~ "unmatched")) %>%
   filter(confidence_score >= 0.85)
 
-# rm(candidates_scores)
-# gc()
+rm(candidates_scores)
+gc()
 
 ### Combine exact matches with fuzzy matches ------
 
@@ -331,7 +332,7 @@ all_matches_clean <-
   all_matches %>%
   select(all_of(base_cols_clean))
 
-# rm(fuzzy_matches, exact_matches)
+rm(fuzzy_matches, exact_matches)
 
 # pick exact over fuzzy match if duplicates exist based on confidence score
 best_matches <-
@@ -341,7 +342,7 @@ best_matches <-
   arrange(facility_id_A, facility_id_B) %>%
   ungroup()
 
-# rm(all_matches)
+rm(all_matches)
 
 # filter matches to those exceeding 85%
 accepted_matches <-
@@ -351,7 +352,7 @@ accepted_matches <-
              str_detect(match_type, "fuzzy") ~ "fuzzy",
              TRUE ~ NA_character_))
 
-# rm(best_matches)
+rm(best_matches)
 
 # count match category for ID
 accepted_match_cat_facid_a <-
@@ -362,8 +363,9 @@ accepted_match_cat_facid_a <-
   group_by(match_category) %>%
   count() %>%
   print()
-# write.csv(accepted_match_cat_facid_a, 
-#           glue::glue("gdrive/OLEM/olem-matching/output_data/matches", final_suffix_A, final_suffix_B, "_facilityid", final_suffix_A, "_count_v2.csv"), row.names = FALSE)
+
+write.csv(accepted_match_cat_facid_a,
+          glue::glue("gdrive/OLEM/olem-matching/output_data/matches", final_suffix_A, final_suffix_B, "_facilityid", final_suffix_A, "_count_v2.csv"), row.names = FALSE)
 
 accepted_match_cat_facid_b <-
   accepted_matches %>%
@@ -373,8 +375,8 @@ accepted_match_cat_facid_b <-
   group_by(match_category) %>%
   count() %>%
   print()
-# write.csv(accepted_match_cat_facid_b, 
-#           glue::glue("gdrive/OLEM/olem-matching/output_data/matches", final_suffix_A, final_suffix_B, "_facilityid", final_suffix_B, "_count_v2.csv"), row.names = FALSE)
+write.csv(accepted_match_cat_facid_b,
+          glue::glue("gdrive/OLEM/olem-matching/output_data/matches", final_suffix_A, final_suffix_B, "_facilityid", final_suffix_B, "_count_v2.csv"), row.names = FALSE)
 
 # count match type for ID
 accepted_match_type_facid_a <-
@@ -385,8 +387,8 @@ accepted_match_type_facid_a <-
   group_by(match_type) %>%
   count() %>%
   print()
-# write.csv(accepted_match_type_facid_a, 
-#           glue::glue("gdrive/OLEM/olem-matching/output_data/matches", final_suffix_A, final_suffix_B, "_facilityid", final_suffix_A, "_matchtype_v2.csv"), row.names = FALSE)
+write.csv(accepted_match_type_facid_a,
+          glue::glue("gdrive/OLEM/olem-matching/output_data/matches", final_suffix_A, final_suffix_B, "_facilityid", final_suffix_A, "_matchtype_v2.csv"), row.names = FALSE)
 
 accepted_match_type_facid_b <-
   accepted_matches %>%
@@ -396,8 +398,8 @@ accepted_match_type_facid_b <-
   group_by(match_type) %>%
   count() %>%
   print()
-# write.csv(accepted_match_type_facid_b, 
-#           glue::glue("gdrive/OLEM/olem-matching/output_data/matches", final_suffix_A, final_suffix_B, "_facilityid", final_suffix_B, "_matchtype_v2.csv"), row.names = FALSE)
+write.csv(accepted_match_type_facid_b,
+          glue::glue("gdrive/OLEM/olem-matching/output_data/matches", final_suffix_A, final_suffix_B, "_facilityid", final_suffix_B, "_matchtype_v2.csv"), row.names = FALSE)
 
 if(facility_B_name == "rmp") {
   accepted_matches_adj <-
@@ -417,5 +419,5 @@ final_matches <-
                 gsub(suffix_A, final_suffix_A, .) %>%
                 gsub(suffix_B, final_suffix_B, .))
 
-# write.csv(final_matches, 
-#           glue::glue("gdrive/OLEM/olem-matching/output_data/matches", final_suffix_A, final_suffix_B, "_v2.csv"), row.names = FALSE)
+write.csv(final_matches,
+          glue::glue("gdrive/OLEM/olem-matching/output_data/matches", final_suffix_A, final_suffix_B, "_v2.csv"), row.names = FALSE)
