@@ -10,10 +10,6 @@ library(stringdist)
 library(stringr)
 library(tidyr)
 
-# DEFINE FILES FOR MATCHING - REQUIRES USER INPUT -----
-facility_A_name <- "frp" # frp or rmp
-facility_B_name <- "rcra" #rmp or rcra
-
 # Clean data -----
 
 source("gdrive/OLEM/olem-matching/function_clean_raw_data.R")
@@ -24,10 +20,15 @@ cleaned_data <- clean_raw_data()
 frp <- cleaned_data$frp
 rmp <- cleaned_data$rmp
 rcra <- cleaned_data$rcra
-# rm(cleaned_data)
 gc()
 
 rmp_cleaned_duplicates <- remove_rmp_duplicates(rmp)
+
+# DEFINE FILES FOR MATCHING - REQUIRES USER INPUT - RUN FROM HERE -----
+rm(list = setdiff(ls(), c("frp", "rcra","rmp_cleaned_duplicates")))
+gc()
+facility_A_name <- "rmp" # frp or rmp
+facility_B_name <- "rcra" #rmp or rcra
 
 # rmp_cleaned_duplicates <-
 #   rmp %>%
@@ -38,31 +39,31 @@ rmp_cleaned_duplicates <- remove_rmp_duplicates(rmp)
 #          addr = street_address_1)
 # rm(rmp)
 
-# number of RMP values that still have duplicates
-rmp_duplicates <-
- rmp_cleaned_duplicates %>%
- count(epa_facility_id) %>%
- filter(n > 1) %>%
- glimpse()
-   
-# unique FRP facility ids
-frp_ids <-
- frp %>%
- count(facility_id) %>%
- filter(!is.na(facility_id)) %>%
- glimpse
-
-rmp_ids <-
- rmp %>%
- count(epa_facility_id) %>%
- filter(!is.na(epa_facility_id)) %>%
- glimpse()
-
-rcra_ids <-
- rcra %>%
- count(facility_id) %>%
- filter(!is.na(facility_id)) %>%
- glimpse()
+# # number of RMP values that still have duplicates
+# rmp_duplicates <-
+#  rmp_cleaned_duplicates %>%
+#  count(epa_facility_id) %>%
+#  filter(n > 1) %>%
+#  glimpse()
+#    
+# # unique FRP facility ids
+# frp_ids <-
+#  frp %>%
+#  count(facility_id) %>%
+#  filter(!is.na(facility_id)) %>%
+#  glimpse
+# 
+# rmp_ids <-
+#  rmp %>%
+#  count(epa_facility_id) %>%
+#  filter(!is.na(epa_facility_id)) %>%
+#  glimpse()
+# 
+# rcra_ids <-
+#  rcra %>%
+#  count(facility_id) %>%
+#  filter(!is.na(facility_id)) %>%
+#  glimpse()
 
 # Match facilities -----
 
@@ -78,7 +79,6 @@ rmp_matching <-
   rmp_cleaned_duplicates %>%
   mutate(has_coordinates = !is.na(latitude) & !is.na(longitude)) %>%
   rename("facility_id" = "epa_facility_id") # set epa facility ID to main id
-  # glimpse()
 
 rcra_matching <-
   rcra %>%
@@ -87,7 +87,6 @@ rcra_matching <-
          state = state_code,
          zip = postal_code,
          addr = street_address_1)
-rm(frp, rmp, rcra)
 
 ## FRP and RMP ----
 facility_A <- get(paste0(facility_A_name, "_matching"))
@@ -209,7 +208,12 @@ rm(fac_A_block4, fac_B_block4)
 
 gc()
 
-if (facility_B_name == "rcra" | facility_B_name == "rmp") {
+if (facility_B_name == "rcra") {
+  
+  candidates_bind <-
+    bind_rows(c1, c2, c4)
+  
+} else {
   
   fac_A_block3 <-
     facility_A %>%
@@ -220,13 +224,10 @@ if (facility_B_name == "rcra" | facility_B_name == "rmp") {
     mutate(block = paste(state, soundex(name)))
   
   c3 <- inner_join(fac_A_block3, fac_B_block3, by = "block", suffix = c(suffix_A, suffix_B))
-  # rm(fac_A_block3, fac_B_block3)
+  rm(fac_A_block3, fac_B_block3)
   
   candidates_bind <-
     bind_rows(c1, c2, c3, c4)
-} else {
-  candidates_bind <-
-    bind_rows(c1, c2, c4)
 }
 
 candidates_scores <- 
@@ -321,16 +322,16 @@ base_cols_clean <- c(
 )
 
 if(facility_A_name == "rmp" | facility_B_name == "rmp") {
-  append(base_cols_clean, list("other_epa_facility_id"))
+  base_cols_clean <- append(base_cols_clean, list("other_epa_facility_id_rmp" = "other_epa_facility_id"))
 } 
 
 if (facility_A_name == "frp") {
-  append(base_cols_clean, list("frp_id"))
+  base_cols_clean <- append(base_cols_clean, list("frp_id"))
 }
 
 all_matches_clean <-
   all_matches %>%
-  select(all_of(base_cols_clean))
+  select(all_of(unlist(base_cols_clean)))
 
 rm(fuzzy_matches, exact_matches)
 
@@ -401,10 +402,19 @@ accepted_match_type_facid_b <-
 write.csv(accepted_match_type_facid_b,
           glue::glue("gdrive/OLEM/olem-matching/output_data/matches", final_suffix_A, final_suffix_B, "_facilityid", final_suffix_B, "_matchtype_v2.csv"), row.names = FALSE)
 
-if(facility_B_name == "rmp") {
+if (facility_A_name == "rmp") {
   accepted_matches_adj <-
     accepted_matches %>%
-    rename("epa_facility_id_B" = "facility_id_B")
+    rename("epa_facility_id_A" = "facility_id_A",
+           "handler_id_B" = "facility_id_B")
+} else if(facility_B_name == "rmp") {
+    accepted_matches_adj <-
+      accepted_matches %>%
+      rename("epa_facility_id_B" = "facility_id_B")
+} else if (facility_B_name == "rcra") {
+  accepted_matches_adj <-
+    accepted_matches %>%
+    rename("handler_id_B" = "facility_id_B")
 } else {
   accepted_matches_adj <-
     accepted_matches
@@ -414,6 +424,7 @@ if(facility_B_name == "rmp") {
 final_matches <-
   accepted_matches_adj %>%
   mutate(confidence_score = round(confidence_score, 4)) %>%
+  mutate(across(where(is.character), ~replace_na(., ""))) %>%
   relocate(match_category, .after = match_type) %>%
   rename_with(~ .x %>% 
                 gsub(suffix_A, final_suffix_A, .) %>%
