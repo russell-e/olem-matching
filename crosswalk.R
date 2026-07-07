@@ -42,11 +42,11 @@ frp_rmp_ids <-
 frp_rcra_ids <-
   frp_rcra %>%
   select(frp_id = facility_id_frp,
-         rcra_id = facility_id_rcra)
+         rcra_id = handler_id_rcra)
 rmp_rcra_ids <-
   rmp_rcra %>%
-  select(rmp_id = facility_id_rmp,
-         rcra_id = facility_id_rcra)
+  select(rmp_id = epa_facility_id_rmp,
+         rcra_id = handler_id_rcra)
 
 crosswalk <-
   frp_rmp_ids %>%
@@ -62,27 +62,27 @@ crosswalk <-
     rcra_id = paste(sort(unique(na.omit(rcra_id))), collapse = "; "),
     .groups = "drop"
   ) %>%
-  rename("frp_facility_id" = "frp_id", "rmp_epa_facility_id" = "rmp_id", "rcra_handler_id" = "rcra_id")
+  rename("facility_id_frp" = "frp_id", "epa_facility_id_rmp" = "rmp_id", "handler_id_rcra" = "rcra_id")
   
 crosswalk_frp <-
   crosswalk %>%
-  right_join(frp %>% select(facility_id), by = c("frp_facility_id" = "facility_id")) %>%
-  arrange(frp_facility_id) %>%
+  right_join(frp %>% select(facility_id), by = c("facility_id_frp" = "facility_id")) %>%
+  arrange(facility_id_frp) %>%
   mutate(across(where(is.character), ~replace_na(., ""))) %>%
   distinct() 
 
 crosswalk_unmatched_rmp <-
   rmp_cleaned %>%
-  select(rmp_epa_facility_id = epa_facility_id) %>%
-  anti_join(crosswalk_frp, by = "rmp_epa_facility_id") %>%
-  arrange(rmp_epa_facility_id) %>%
+  select(epa_facility_id_rmp = epa_facility_id) %>%
+  anti_join(crosswalk_frp, by = "epa_facility_id_rmp") %>%
+  arrange(epa_facility_id_rmp) %>%
   distinct()
 
 crosswalk_unmatched_rcra <-
   rcra %>%
-  select(rcra_handler_id = facility_id) %>%
-  anti_join(crosswalk_frp, by = "rcra_handler_id") %>%
-  arrange(rcra_handler_id) %>%
+  select(handler_id_rcra = facility_id) %>%
+  anti_join(crosswalk_frp, by = "handler_id_rcra") %>%
+  arrange(handler_id_rcra) %>%
   distinct()
 
 write.csv(crosswalk_frp,
