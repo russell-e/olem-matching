@@ -30,6 +30,7 @@ rm(list = setdiff(ls(), c("frp", "rcra","rmp_cleaned_duplicates")))
 gc()
 facility_A_name <- "rmp" # frp or rmp
 facility_B_name <- "rcra" #rmp or rcra
+version <- "v3"
 
 # rmp_cleaned_duplicates <-
 #   rmp %>%
@@ -368,7 +369,7 @@ accepted_match_cat_facid_a <-
   print()
 
 write.csv(accepted_match_cat_facid_a,
-          glue::glue("gdrive/OLEM/olem-matching/output_data/matches", final_suffix_A, final_suffix_B, "_facilityid", final_suffix_A, "_count_v2.csv"), row.names = FALSE)
+          glue::glue("gdrive/OLEM/olem-matching/output_data/matches", final_suffix_A, final_suffix_B, "_facilityid", final_suffix_A, "_count_", version, ".csv"), row.names = FALSE)
 
 accepted_match_cat_facid_b <-
   accepted_matches %>%
@@ -379,7 +380,7 @@ accepted_match_cat_facid_b <-
   count() %>%
   print()
 write.csv(accepted_match_cat_facid_b,
-          glue::glue("gdrive/OLEM/olem-matching/output_data/matches", final_suffix_A, final_suffix_B, "_facilityid", final_suffix_B, "_count_v2.csv"), row.names = FALSE)
+          glue::glue("gdrive/OLEM/olem-matching/output_data/matches", final_suffix_A, final_suffix_B, "_facilityid", final_suffix_B, "_count_", version, ".csv"), row.names = FALSE)
 
 # count match type for ID
 accepted_match_type_facid_a <-
@@ -391,7 +392,7 @@ accepted_match_type_facid_a <-
   count() %>%
   print()
 write.csv(accepted_match_type_facid_a,
-          glue::glue("gdrive/OLEM/olem-matching/output_data/matches", final_suffix_A, final_suffix_B, "_facilityid", final_suffix_A, "_matchtype_v2.csv"), row.names = FALSE)
+          glue::glue("gdrive/OLEM/olem-matching/output_data/matches", final_suffix_A, final_suffix_B, "_facilityid", final_suffix_A, "_matchtype_", version, ".csv"), row.names = FALSE)
 
 accepted_match_type_facid_b <-
   accepted_matches %>%
@@ -402,7 +403,7 @@ accepted_match_type_facid_b <-
   count() %>%
   print()
 write.csv(accepted_match_type_facid_b,
-          glue::glue("gdrive/OLEM/olem-matching/output_data/matches", final_suffix_A, final_suffix_B, "_facilityid", final_suffix_B, "_matchtype_v2.csv"), row.names = FALSE)
+          glue::glue("gdrive/OLEM/olem-matching/output_data/matches", final_suffix_A, final_suffix_B, "_facilityid", final_suffix_B, "_matchtype_", version, ".csv"), row.names = FALSE)
 
 if (facility_A_name == "rmp") {
   accepted_matches_adj <-
@@ -433,4 +434,4 @@ final_matches <-
                 gsub(suffix_B, final_suffix_B, .))
 
 write.csv(final_matches,
-          glue::glue("gdrive/OLEM/olem-matching/output_data/matches", final_suffix_A, final_suffix_B, "_v3.csv"), row.names = FALSE)
+          glue::glue("gdrive/OLEM/olem-matching/output_data/matches", final_suffix_A, final_suffix_B, "_", version, ".csv"), row.names = FALSE)
