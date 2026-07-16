@@ -1,5 +1,67 @@
 clean_raw_data <-
   function(){
+    
+    normalize_address <- function(x) {
+      x <- toupper(x)
+      x <- str_replace_all(x, "[[:punct:]]", " ")
+      for (i in seq_along(address_replacements)) {
+        pattern <- paste0("\\b", names(address_replacements)[i], "\\b")
+        x <- str_replace_all(x, pattern, address_replacements[i])
+      }
+      x <- str_squish(x)
+      x
+    }
+    
+    fix_coord <- function(x) {
+      sapply(x, function(v) {
+        if (is.na(v)) return(NA_real_)
+        
+        while (abs(v) > 180) {
+          v <- v / 10
+        }
+        v
+      })
+    }
+    
+    address_replacements <- c(
+      "NORTH" = "N",
+      "SOUTH" = "S",
+      "EAST" = "E",
+      "WEST" = "W",
+      "NORTHEAST" = "NE",
+      "NORTHWEST" = "NW",
+      "SOUTHEAST" = "SE",
+      "SOUTHWEST" = "SW",
+      "STREET" = "ST",
+      "AVENUE" = "AVE",
+      "ROAD" = "RD",
+      "DRIVE" = "DR",
+      "BOULEVARD" = "BLVD",
+      "LANE" = "LN",
+      "COURT" = "CT",
+      "CIRCLE" = "CIR",
+      "PLACE" = "PL",
+      "TERRACE" = "TER",
+      "PARKWAY" = "PKWY",
+      "HIGHWAY" = "HWY",
+      "TRAIL" = "TRL",
+      "APARTMENT" = "APT",
+      "SUITE" = "STE",
+      "BUILDING" = "BLDG",
+      "FLOOR" = "FL",
+      "ROOM" = "RM",
+      "FIRST" = "1ST",
+      "SECOND" = "2ND",
+      "THIRD" = "3RD",
+      "FOURTH" = "4TH",
+      "FIFTH" = "5TH",
+      "SIXTH" = "6TH",
+      "SEVENTH" = "7TH",
+      "EIGHTH" = "8TH",
+      "NINTH" = "9TH",
+      "TENTH" = "10TH"
+    )
+    
     # FRP -----
     ## Import data ----
     print("Cleaning FRP data...")
@@ -87,66 +149,6 @@ clean_raw_data <-
       distinct()
     
     ## Clean the character data and normalize address -----
-    address_replacements <- c(
-      "NORTH" = "N",
-      "SOUTH" = "S",
-      "EAST" = "E",
-      "WEST" = "W",
-      "NORTHEAST" = "NE",
-      "NORTHWEST" = "NW",
-      "SOUTHEAST" = "SE",
-      "SOUTHWEST" = "SW",
-      "STREET" = "ST",
-      "AVENUE" = "AVE",
-      "ROAD" = "RD",
-      "DRIVE" = "DR",
-      "BOULEVARD" = "BLVD",
-      "LANE" = "LN",
-      "COURT" = "CT",
-      "CIRCLE" = "CIR",
-      "PLACE" = "PL",
-      "TERRACE" = "TER",
-      "PARKWAY" = "PKWY",
-      "HIGHWAY" = "HWY",
-      "TRAIL" = "TRL",
-      "APARTMENT" = "APT",
-      "SUITE" = "STE",
-      "BUILDING" = "BLDG",
-      "FLOOR" = "FL",
-      "ROOM" = "RM",
-      "FIRST" = "1ST",
-      "SECOND" = "2ND",
-      "THIRD" = "3RD",
-      "FOURTH" = "4TH",
-      "FIFTH" = "5TH",
-      "SIXTH" = "6TH",
-      "SEVENTH" = "7TH",
-      "EIGHTH" = "8TH",
-      "NINTH" = "9TH",
-      "TENTH" = "10TH"
-    )
-    
-    normalize_address <- function(x) {
-      x <- toupper(x)
-      x <- str_replace_all(x, "[[:punct:]]", " ")
-      for (i in seq_along(address_replacements)) {
-        pattern <- paste0("\\b", names(address_replacements)[i], "\\b")
-        x <- str_replace_all(x, pattern, address_replacements[i])
-      }
-      x <- str_squish(x)
-      x
-    }
-    
-    fix_coord <- function(x) {
-      sapply(x, function(v) {
-        if (is.na(v)) return(NA_real_)
-        
-        while (abs(v) > 180) {
-          v <- v / 10
-        }
-        v
-      })
-    }
     
     frp_clean_strings <-
       frp_true %>%
@@ -215,9 +217,15 @@ clean_raw_data <-
       janitor::clean_names() %>%
       janitor::remove_empty(which = "cols") # remove empty columns
 
-    rmp_data_select <-
+    # remove deregistered records
+    rmp_registered <-
       rmp_data %>%
-      mutate(facility_id = as.character(facility_id)) %>%
+      filter(is.na(de_registration_effective_date))
+
+    rmp_data_select <-
+      rmp_registered %>%
+      mutate(facility_id = as.character(facility_id),
+             completion_check_date = mdy_hms(completion_check_date)) %>%
       select(facility_id, 
              epa_facility_id, 
              other_epa_facility_id, 
@@ -232,7 +240,8 @@ clean_raw_data <-
              postal_code_ext = facility4digit_zip_ext,
              county_fips = facility_county_fips, 
              company_name = parent_company_name,
-             company_name_2 = company2name) %>%
+             company_name_2 = company2name,
+             completion_check_date) %>%
       mutate(latitude = as.double(latitude))
     
     ## Clean data characters -----
