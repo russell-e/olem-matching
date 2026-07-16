@@ -23,7 +23,7 @@ rcra <- cleaned_data$rcra
 gc()
 
 # remove duplicates
-rmp_cleaned_duplicates <- remove_rmp_duplicates(rmp)
+rmp_cleaned_duplicates <- remove_rmp_duplicates(rmp) #11491
 
 # DEFINE FILES FOR MATCHING - REQUIRES USER INPUT - RUN FROM HERE -----
 rm(list = setdiff(ls(), c("frp", "rcra","rmp_cleaned_duplicates")))
@@ -433,4 +433,4 @@ final_matches <-
                 gsub(suffix_B, final_suffix_B, .))
 
 write.csv(final_matches,
-          glue::glue("gdrive/OLEM/olem-matching/output_data/matches", final_suffix_A, final_suffix_B, "_v2.csv"), row.names = FALSE)
+          glue::glue("gdrive/OLEM/olem-matching/output_data/matches", final_suffix_A, final_suffix_B, "_v3.csv"), row.names = FALSE)
