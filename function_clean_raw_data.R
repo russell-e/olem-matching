@@ -224,8 +224,7 @@ clean_raw_data <-
 
     rmp_data_select <-
       rmp_registered %>%
-      mutate(facility_id = as.character(facility_id),
-             completion_check_date = mdy_hms(completion_check_date)) %>%
+      mutate(facility_id = as.character(facility_id)) %>%
       select(facility_id, 
              epa_facility_id, 
              other_epa_facility_id, 
@@ -240,8 +239,7 @@ clean_raw_data <-
              postal_code_ext = facility4digit_zip_ext,
              county_fips = facility_county_fips, 
              company_name = parent_company_name,
-             company_name_2 = company2name,
-             completion_check_date) %>%
+             company_name_2 = company2name) %>%
       mutate(latitude = as.double(latitude))
     
     ## Clean data characters -----
@@ -263,7 +261,7 @@ clean_raw_data <-
              latitude = if_else(abs(latitude) > 90, fix_coord(latitude), latitude),
              longitude = if_else(abs(longitude) > 180, fix_coord(longitude), longitude))
     
-    # Remove duplicates -----
+    ## Remove duplicates -----
     
     rmp_duplicates <-
       rmp_clean_strings %>%
@@ -324,7 +322,7 @@ clean_raw_data <-
                sep = "-",
                fill = "right", 
                remove = FALSE) %>%
-      select(facility_id = handler_id, 
+      select(handler_id, 
              latitude = location_latitude, 
              longitude = location_longitude,
              facility_name = handler_name, 
@@ -355,11 +353,11 @@ clean_raw_data <-
              latitude = if_else(abs(latitude) > 90, fix_coord(latitude), latitude),
              longitude = if_else(abs(longitude) > 180, fix_coord(longitude), longitude))
     
-    # Remove duplicates -----
+    ## Remove duplicates -----
     
     rcra_duplicates <-
       rcra_clean_strings %>%
-      group_by(facility_id) %>%
+      group_by(handler_id) %>%
       filter(n() > 1)
     
     if (nrow(rcra_duplicates) > 1){
@@ -371,7 +369,7 @@ clean_raw_data <-
         distinct() %>%
         # count non-na rows
         mutate(non_missing = rowSums(!is.na(.))) %>% 
-        group_by(facility_id) %>%
+        group_by(handler_id) %>%
         # merge duplicate rows if no conflicting row information
         group_modify(~{conflict <- any(sapply(select(.x, -non_missing), has_conflict))
         .x$conflict_flag <- conflict
