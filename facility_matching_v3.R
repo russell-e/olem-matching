@@ -10,42 +10,37 @@ library(stringdist)
 library(stringr)
 library(tidyr)
 
+# chec full run with clean_raw_data
+g
 # Clean data -----
 
 source("gdrive/OLEM/olem-matching/function_clean_raw_data.R")
-source("gdrive/OLEM/olem-matching/function_clean_rmp_duplicates.R")
 
 cleaned_data <- clean_raw_data()
 
 frp <- cleaned_data$frp
-rmp <- cleaned_data$rmp
+rmp_all <- cleaned_data$rmp
 rcra <- cleaned_data$rcra
 gc()
 
-# remove duplicates
-rmp_cleaned_duplicates <- remove_rmp_duplicates(rmp) #11491
+# select most up-to-date RMP records
+rmp <-
+  rmp_all %>%
+  group_by(epa_facility_id) %>%
+  slice_max(order_by = facility_id, n = 1, with_ties = TRUE) %>%
+  ungroup()
 
 # DEFINE FILES FOR MATCHING - REQUIRES USER INPUT - RUN FROM HERE -----
-rm(list = setdiff(ls(), c("frp", "rcra","rmp_cleaned_duplicates")))
+rm(list = setdiff(ls(), c("frp", "rcra","rmp")))
 gc()
 facility_A_name <- "rmp" # frp or rmp
 facility_B_name <- "rcra" #rmp or rcra
 version <- "v3"
 
-# rmp_cleaned_duplicates <-
-#   rmp %>%
-#   # select(-facility_id) %>%
-#   rename(name = facility_name,
-#          state = state_code,
-#          zip = postal_code,
-#          addr = street_address_1)
-# rm(rmp)
-
 # number of RMP values that still have duplicates
 # rmp_duplicates <-
-#  rmp_cleaned_duplicates %>%
+#  rmp %>%
 #  count(epa_facility_id) %>%
-#   glimpse()
 #  filter(n > 1) %>%
 #  glimpse()
 #    
@@ -57,7 +52,7 @@ version <- "v3"
 #  glimpse
 # 
 # rmp_ids <-
-#  rmp_cleaned_duplicates %>%
+#  rmp %>%
 #  count(epa_facility_id) %>%
 #  filter(!is.na(epa_facility_id)) %>%
 #  glimpse()
@@ -73,20 +68,26 @@ version <- "v3"
 frp_matching <- 
   frp %>%
   mutate(has_coordinates = !is.na(latitude) & !is.na(longitude)) %>%
-  rename(name = facility_name,
+  rename(match_id = facility_id,
+         name = facility_name,
          state = state_code,
          zip = postal_code,
          addr = street_address_1)
 
 rmp_matching <- 
-  rmp_cleaned_duplicates %>%
+  rmp %>%
   mutate(has_coordinates = !is.na(latitude) & !is.na(longitude)) %>%
-  rename("facility_id" = "epa_facility_id") # set epa facility ID to main id
+  rename(match_id = epa_facility_id,
+         name = facility_name,
+         state = state_code,
+         zip = postal_code,
+         addr = street_address_1)
 
 rcra_matching <-
   rcra %>%
   mutate(has_coordinates = !is.na(latitude) & !is.na(longitude)) %>%
-  rename(name = facility_name,
+  rename(match_id = handler_id,
+         name = facility_name,
          state = state_code,
          zip = postal_code,
          addr = street_address_1)
@@ -105,11 +106,11 @@ final_suffix_B <- paste0("_", facility_B_name)
 if(facility_A_name == "rmp" & facility_B_name == "rcra") {
   exact_id_matches <-
     facility_A %>%
-    inner_join(facility_B, by = c("other_epa_facility_id" = "facility_id"), suffix = c(suffix_A, suffix_B)) %>%
-    filter(!is.na(facility_id)) %>%
-    mutate(facility_id_B = other_epa_facility_id,
+    inner_join(facility_B, by = c("other_epa_facility_id" = "match_id"), suffix = c(suffix_A, suffix_B)) %>%
+    filter(!is.na(match_id)) %>%
+    mutate(match_id_B = other_epa_facility_id,
            match_type = "exact_id") %>%
-    rename("facility_id{suffix_A}" := "facility_id")
+    rename("match_id{suffix_A}" := "match_id")
 }
 
 exact_name_address_matches <- 
@@ -157,8 +158,8 @@ if(facility_A_name == "rmp" & facility_B_name == "rcra") {
 
 exact_matches <- 
   exact_matches_bind %>%
-  arrange(facility_id_A, priority) %>% 
-  group_by(facility_id_A, facility_id_B) %>%
+  arrange(match_id_A, priority) %>% 
+  group_by(match_id_A, match_id_B) %>%
   slice(1) %>%
   ungroup() %>%
   mutate(confidence_score = case_when(
@@ -202,11 +203,11 @@ fac_B_block4 <-
 gc()
 
 # aggregate fuzzy match candidate
-c1 <- inner_join(fac_A_block1, fac_B_block1, by = "block", suffix = c(suffix_A, suffix_B))
+c1 <- inner_join(fac_A_block1, fac_B_block1, by = "block", suffix = c(suffix_A, suffix_B), relationship = "many-to-many")
 rm(fac_A_block1, fac_B_block1)
-c2 <- inner_join(fac_A_block2, fac_B_block2, by = "block", suffix = c(suffix_A, suffix_B))
+c2 <- inner_join(fac_A_block2, fac_B_block2, by = "block", suffix = c(suffix_A, suffix_B), relationship = "many-to-many")
 rm(fac_A_block2, fac_B_block2)
-c4 <- inner_join(fac_A_block4, fac_B_block4, by = "block", suffix = c(suffix_A, suffix_B))
+c4 <- inner_join(fac_A_block4, fac_B_block4, by = "block", suffix = c(suffix_A, suffix_B), relationship = "many-to-many")
 rm(fac_A_block4, fac_B_block4)
 
 gc()
@@ -235,7 +236,7 @@ if (facility_B_name == "rcra") {
 
 candidates_scores <- 
   candidates_bind %>%
-  distinct(facility_id_A, facility_id_B, .keep_all = TRUE) %>%
+  distinct(match_id_A, match_id_B, .keep_all = TRUE) %>%
   # split address into street number and street
   mutate(street_num_A = str_extract(addr_A, "^\\d+"),
          street_num_B = str_extract(addr_B, "^\\d+"),
@@ -311,8 +312,8 @@ all_matches <-
     exact_matches)
 
 base_cols_clean <- c(
-  "facility_id_A", 
-  "facility_id_B",
+  "match_id_A", 
+  "match_id_B",
   "match_type",
   "confidence_score",
   "name_A", "name_B",
@@ -325,7 +326,9 @@ base_cols_clean <- c(
 )
 
 if(facility_A_name == "rmp" | facility_B_name == "rmp") {
-  base_cols_clean <- append(base_cols_clean, list("other_epa_facility_id_rmp" = "other_epa_facility_id"))
+  base_cols_clean <- append(base_cols_clean, 
+                            list("other_epa_facility_id_rmp" = "other_epa_facility_id",
+                                 "facility_id_rmp" = "facility_id"))
 } 
 
 if (facility_A_name == "frp") {
@@ -341,9 +344,9 @@ rm(fuzzy_matches, exact_matches)
 # pick exact over fuzzy match if duplicates exist based on confidence score
 best_matches <-
   all_matches_clean %>%
-  group_by(facility_id_A, facility_id_B) %>%
+  group_by(match_id_A, match_id_B) %>%
   slice_max(confidence_score, with_ties = FALSE) %>%
-  arrange(facility_id_A, facility_id_B) %>%
+  arrange(match_id_A, match_id_B) %>%
   ungroup()
 
 rm(all_matches)
@@ -361,63 +364,69 @@ rm(best_matches)
 # count match category for ID
 accepted_match_cat_facid_a <-
   accepted_matches %>%
-  group_by(facility_id_A) %>%
-  arrange(facility_id_A, match_category) %>%
+  group_by(match_id_A) %>%
+  arrange(match_id_A, match_category) %>%
   slice(1) %>%
   group_by(match_category) %>%
   count() %>%
   print()
 
+save_dir <- glue::glue("gdrive/OLEM/olem-matching/output_data/", version)
+if (!dir.exists(save_dir)) {
+  dir.create(save_dir)
+}
+
 write.csv(accepted_match_cat_facid_a,
-          glue::glue("gdrive/OLEM/olem-matching/output_data/matches", final_suffix_A, final_suffix_B, "_facilityid", final_suffix_A, "_count_", version, ".csv"), row.names = FALSE)
+          glue::glue(save_dir, "/matches", final_suffix_A, final_suffix_B, "_match_id", final_suffix_A, "_count.csv"), row.names = FALSE)
 
 accepted_match_cat_facid_b <-
   accepted_matches %>%
-  group_by(facility_id_B) %>%
-  arrange(facility_id_B, match_category) %>%
+  group_by(match_id_B) %>%
+  arrange(match_id_B, match_category) %>%
   slice(1) %>%
   group_by(match_category) %>%
   count() %>%
   print()
 write.csv(accepted_match_cat_facid_b,
-          glue::glue("gdrive/OLEM/olem-matching/output_data/matches", final_suffix_A, final_suffix_B, "_facilityid", final_suffix_B, "_count_", version, ".csv"), row.names = FALSE)
+          glue::glue(save_dir, "/matches", final_suffix_A, final_suffix_B, "_match_id", final_suffix_B, "_count.csv"), row.names = FALSE)
 
 # count match type for ID
 accepted_match_type_facid_a <-
   accepted_matches %>%
-  group_by(facility_id_A) %>%
-  arrange(facility_id_A, match_type) %>%
+  group_by(match_id_A) %>%
+  arrange(match_id_A, match_type) %>%
   slice(1) %>%
   group_by(match_type) %>%
   count() %>%
   print()
 write.csv(accepted_match_type_facid_a,
-          glue::glue("gdrive/OLEM/olem-matching/output_data/matches", final_suffix_A, final_suffix_B, "_facilityid", final_suffix_A, "_matchtype_", version, ".csv"), row.names = FALSE)
+          glue::glue(save_dir, "/matches", final_suffix_A, final_suffix_B, "_match_id", final_suffix_A, "_matchtype.csv"), row.names = FALSE)
 
 accepted_match_type_facid_b <-
   accepted_matches %>%
-  group_by(facility_id_B) %>%
-  arrange(facility_id_B, match_type) %>%
+  group_by(match_id_B) %>%
+  arrange(match_id_B, match_type) %>%
   slice(1) %>%
   group_by(match_type) %>%
   count() %>%
   print()
 write.csv(accepted_match_type_facid_b,
-          glue::glue("gdrive/OLEM/olem-matching/output_data/matches", final_suffix_A, final_suffix_B, "_facilityid", final_suffix_B, "_matchtype_", version, ".csv"), row.names = FALSE)
+          glue::glue(save_dir, "/matches", final_suffix_A, final_suffix_B, "_match_id", final_suffix_B, "_matchtype.csv"), row.names = FALSE)
 
 if (facility_A_name == "rmp") {
   accepted_matches_adj <-
     accepted_matches %>%
-    rename("epa_facility_id_A" = "facility_id_A",
-           "handler_id_B" = "facility_id_B")
+    rename("epa_facility_id_A" = "match_id_A",
+           "handler_id_B" = "match_id_B")
 } else if(facility_B_name == "rmp") {
     accepted_matches_adj <-
       accepted_matches %>%
-      rename("epa_facility_id_B" = "facility_id_B")
+      rename("facility_id_A" = "match_id_A",
+             "epa_facility_id_B" = "match_id_B")
 } else if (facility_B_name == "rcra") {
   accepted_matches_adj <-
     accepted_matches %>%
-    rename("handler_id_B" = "facility_id_B")
+    rename("handler_id_B" = "match_id_B")
 } else {
   accepted_matches_adj <-
     accepted_matches
@@ -434,4 +443,4 @@ final_matches <-
                 gsub(suffix_B, final_suffix_B, .))
 
 write.csv(final_matches,
-          glue::glue("gdrive/OLEM/olem-matching/output_data/matches", final_suffix_A, final_suffix_B, "_", version, ".csv"), row.names = FALSE)
+          glue::glue(save_dir, "/matches", final_suffix_A, final_suffix_B, ".csv"), row.names = FALSE)
