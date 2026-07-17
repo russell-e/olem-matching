@@ -221,16 +221,9 @@ remove_rmp_duplicates <- function(rmp) {
     left_join(coords, by = "epa_facility_id")
 
   # Remove almost exact matches - currently not used
-  # rmp_remove_near_duplicates <- remove_near_duplicates(rmp_remove_exact_duplicates)
-  
-  # select record with newest completion date
-  rmp_newest <-
-    rmp_remove_exact_duplicates %>%
-    group_by(epa_facility_id) %>%
-    slice_max(order_by = completion_check_date, n = 1, with_ties = TRUE) %>%
-    ungroup()
+  rmp_remove_near_duplicates <- remove_near_duplicates(rmp_remove_exact_duplicates)
    
-  print(glue::glue("Successfully reduced RMP records from {nrow(rmp)} to {nrow(rmp_newest)}"))
+  print(glue::glue("Successfully reduced RMP records from {nrow(rmp)} to {nrow(rmp_remove_near_duplicates)}"))
   
-  return(rmp_newest)
+  return(rmp_remove_near_duplicates)
 }
