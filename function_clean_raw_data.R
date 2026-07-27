@@ -1,6 +1,7 @@
 clean_raw_data <-
   function(){
     
+    # Helper functions -----
     normalize_address <- function(x) {
       x <- toupper(x)
       x <- str_replace_all(x, "[[:punct:]]", " ")
@@ -23,6 +24,11 @@ clean_raw_data <-
       })
     }
     
+    has_conflict <- function(x) {
+      length(unique(na.omit(x))) > 1
+    }
+    
+    # Address replacements -----
     address_replacements <- c(
       "NORTH" = "N",
       "SOUTH" = "S",
@@ -62,22 +68,25 @@ clean_raw_data <-
       "TENTH" = "10TH"
     )
     
+    # State abbreviations -----
+    state_lookup <- tibble(
+      state = state.name,
+      state_abb = state.abb)
+    
     # FRP -----
     ## Import data ----
     print("Cleaning FRP data...")
     frp_file <- "gdrive/OLEM/olem-matching/raw_data/SPCC and FRP data.xlsx"
     frp_sheets <- excel_sheets(frp_file)
     
-    ## Load and clean R9 sheet -----
-    
-    state_lookup <- tibble(
-      state = state.name,
-      state_abb = state.abb)
-    
+    ## R9 sheet -----
+  
+    ### Load sheet -----
     frp_r9 <-
       read_excel(frp_file, sheet = "R9", na = c("", "NA")) %>%
       janitor::clean_names()
     
+    ### Clean sheet -----
     frp_r9_clean <-
       frp_r9 %>%
       # rename misspelled column
@@ -119,7 +128,8 @@ clean_raw_data <-
       select(facility_id, frp_id, latitude, longitude, facility_name, state_code,
              harm_category, street_address_1 = street, city, postal_code, is_subject_to_frp)
     
-    ## Combine FRP data -----
+    ## Combine FRP -----
+    
     # combine all but R9
     frp_sheets_reg <- frp_sheets[frp_sheets != "R9"]
     frp_combined_reg <- 
@@ -134,8 +144,9 @@ clean_raw_data <-
       frp_combined_reg %>%
       bind_rows(frp_r9_clean)
     
-    ## Filter for true FRP flag ----
+    ## Filter for true FRP ----
     
+    # filter for FRP flag = true
     frp_flag_options <-
       frp_combined %>%
       select(is_subject_to_frp) %>%
@@ -148,7 +159,7 @@ clean_raw_data <-
       select(-is_subject_to_frp) %>%
       distinct()
     
-    ## Clean the character data and normalize address -----
+    ## Clean characters -----
     
     frp_clean_strings <-
       frp_true %>%
@@ -161,29 +172,47 @@ clean_raw_data <-
       # remove extra spaces
       mutate(across(where(is.character), ~ str_squish(.x))) %>%
       # replace 0.0 lat, lon with NA
-      mutate(across(c(latitude, longitude), ~ if_else(. == 0, NA_real_, .))) %>%
+      mutate(across(c(latitude, longitude), ~ if_else(. == 0, NA_real_, .)))
+    
+    ## Update incorrect coordinates -----
+    frp_adj_coords <-
+      frp_clean_strings %>%
       # identify incorrect lat, lon
       mutate(latitude_corrected = abs(latitude) > 90,
              longitude_corrected = abs(longitude) > 180,
-             latitude = if_else(abs(latitude) > 90, fix_coord(latitude), latitude),
-             longitude = if_else(abs(longitude) > 180, fix_coord(longitude), longitude))
-    
-    ## Remove duplicates -----
-    
+             # correct too large of lat/lons
+             latitude = if_else(latitude_corrected, fix_coord(latitude), latitude),
+             longitude = if_else(latitude_corrected, fix_coord(longitude), longitude),
+             # resolve incorrect positive longitudes and negative latitudes
+             latitude_corrected = latitude_corrected | (state_code %in% state.abb & latitude < 0),
+             longitude_corrected = longitude_corrected | (state_code %in% state.abb & longitude > 0),
+             longitude = if_else(longitude_corrected & longitude > 0, -longitude, longitude),
+             latitude = if_else(latitude_corrected & latitude < 0, -latitude, latitude))
+
+    ## Remove exact duplicates -----
+
     frp_duplicates <-
-      frp_clean_strings %>%
+      frp_adj_coords %>%
       group_by(facility_id) %>%
       filter(n() > 1)
-    
-    has_conflict <- function(x) {
-      length(unique(na.omit(x))) > 1
-    }
-    
+
     if (nrow(frp_duplicates) > 1){
+      
+      # store coordinate correction status
+      frp_coords_adjustment <- 
+        frp_adj_coords %>%
+        group_by(facility_id) %>%
+        arrange(facility_id, latitude_corrected, longitude_corrected) %>%
+        summarise(
+          latitude_corrected = first(latitude_corrected),
+          longitude_corrected = first(longitude_corrected),
+          .groups = "drop"
+        )
+      
       frp_remove_exact_duplicates <-
-        frp_clean_strings %>%
+        frp_adj_coords %>%
         # remove company name for duplicate identification
-        select(-company_name) %>% 
+        select(-company_name, -latitude_corrected, -longitude_corrected) %>% 
         # remove exact duplicates
         distinct() %>%
         # count non-na rows
@@ -197,13 +226,14 @@ clean_raw_data <-
         # create duplicate flag
         mutate(is_duplicate = n() > 1) %>%
         ungroup() %>%
-        select(-non_missing, -conflict_flag)
+        select(-non_missing, -conflict_flag) %>%
+        left_join(frp_coords_adjustment, by = "facility_id")
       
       frp_for_match <-
         frp_remove_exact_duplicates
     } else {
       frp_for_match <-
-        frp_clean_strings
+        frp_adj_coords
     }
     
     print(glue::glue(nrow(frp_for_match), " cleaned FRP records"))
@@ -211,17 +241,20 @@ clean_raw_data <-
     # RMP -----
     
     print("Cleaning RMP data...")
+    
     ## Import data -----
+    
     rmp_file <- "gdrive/OLEM/olem-matching/raw_data/tblS1Facilities.txt"
     rmp_data <- read_csv(rmp_file, show_col_types = FALSE, na = c("NA", "")) %>% 
       janitor::clean_names() %>%
       janitor::remove_empty(which = "cols") # remove empty columns
 
-    # remove deregistered records
+    ## Remove deregistered -----
     rmp_registered <-
       rmp_data %>%
       filter(is.na(de_registration_effective_date))
 
+    # select columns to keep
     rmp_data_select <-
       rmp_registered %>%
       mutate(facility_id = as.character(facility_id)) %>%
@@ -242,7 +275,7 @@ clean_raw_data <-
              company_name_2 = company2name) %>%
       mutate(latitude = as.double(latitude))
     
-    ## Clean data characters -----
+    ## Clean characters -----
     rmp_clean_strings <-
       rmp_data_select %>%
       # remove punctuation
@@ -254,25 +287,48 @@ clean_raw_data <-
       # remove extra spaces
       mutate(across(where(is.character), ~ str_squish(.x))) %>%
       # replace 0.0 lat, lon with NA
-      mutate(across(c(latitude, longitude), ~ if_else(. == 0, NA_real_, .))) %>%
+      mutate(across(c(latitude, longitude), ~ if_else(. == 0, NA_real_, .)))
+    
+    
+    ## Update incorrect coordinates -----
+    rmp_adj_coords <-
+      rmp_clean_strings %>%
       # identify incorrect lat, lon
       mutate(latitude_corrected = abs(latitude) > 90,
              longitude_corrected = abs(longitude) > 180,
-             latitude = if_else(abs(latitude) > 90, fix_coord(latitude), latitude),
-             longitude = if_else(abs(longitude) > 180, fix_coord(longitude), longitude))
+             # correct too large of lat/lons
+             latitude = if_else(latitude_corrected, fix_coord(latitude), latitude),
+             longitude = if_else(latitude_corrected, fix_coord(longitude), longitude),
+             # resolve incorrect positive longitudes and negative latitudes
+             latitude_corrected = latitude_corrected | (state_code %in% state.abb & latitude < 0),
+             longitude_corrected = longitude_corrected | (state_code %in% state.abb & longitude > 0),
+             longitude = if_else(longitude_corrected & longitude > 0, -longitude, longitude),
+             latitude = if_else(latitude_corrected & latitude < 0, -latitude, latitude))
     
-    ## Remove duplicates -----
+    ## Remove exact duplicates -----
     
     rmp_duplicates <-
-      rmp_clean_strings %>%
+      rmp_adj_coords %>%
       group_by(facility_id) %>%
       filter(n() > 1)
     
     if (nrow(rmp_duplicates) > 1){
+      
+      # store coordinate correction status
+      rmp_coords_adjustment <- 
+        rmp_adj_coords %>%
+        group_by(epa_facility_id) %>%
+        arrange(epa_facility_id, latitude_corrected, longitude_corrected) %>%
+        summarise(
+          latitude_corrected = first(latitude_corrected),
+          longitude_corrected = first(longitude_corrected),
+          .groups = "drop"
+        )
+      
       rmp_remove_exact_duplicates <-
-        rmp_clean_strings %>%
+        rmp_adj_coords %>%
         # remove company name for duplicate identification
-        select(-company_name, -company_name_2) %>% 
+        select(-company_name, -company_name_2, -latitude_corrected, -longitude_corrected) %>% 
         # remove exact duplicates
         distinct() %>%
         # count non-na rows
@@ -286,27 +342,32 @@ clean_raw_data <-
         # create duplicate flag
         mutate(is_duplicate = n() > 1) %>%
         ungroup() %>%
-        select(-non_missing, -conflict_flag)
+        select(-non_missing, -conflict_flag) %>%
+        left_join(rmp_coords_adjustment, by = "epa_facility_id")
       
       rmp_for_match <-
         rmp_remove_exact_duplicates
     } else {
       rmp_for_match <-
-        rmp_clean_strings
+        rmp_adj_coords
     }
     
     print(glue::glue(nrow(rmp_for_match), " cleaned RMP records"))
     
     # RCRA -----
+    
     print("Cleaning RCRA data...")
     
     ## Import data -----
+    
+    # import two source files
     rcra_1 <-"gdrive/OLEM/olem-matching/raw_data/HD_REPORTING_0.csv"
     rcra_2 <- "gdrive/OLEM/olem-matching/raw_data/HD_REPORTING_1.csv"
     
     rcra_data_1 <- read_csv(rcra_1, show_col_types = FALSE, na = c("NA", ""))
     rcra_data_2 <- read_csv(rcra_2, show_col_types = FALSE, na = c("NA", ""))
     
+    # combine source files
     rcra_data <-
       bind_rows(rcra_data_1, rcra_data_2) %>%
       janitor::clean_names() %>%
@@ -314,6 +375,7 @@ clean_raw_data <-
 
     rcra_data_select <-
       rcra_data %>%
+      # separate address information
       mutate(street = if_else(is.na(location_street_no), 
                               location_street1, 
                               paste(location_street_no, location_street1, sep = " "))) %>%
@@ -322,6 +384,7 @@ clean_raw_data <-
                sep = "-",
                fill = "right", 
                remove = FALSE) %>%
+      # select columns to keep
       select(handler_id, 
              latitude = location_latitude, 
              longitude = location_longitude,
@@ -335,6 +398,8 @@ clean_raw_data <-
              county_fips = location_county_code, 
              county = location_county_name)
     
+    ## Clean characters -----
+    
     rcra_clean_strings <-
       rcra_data_select %>%
       # remove punctuation
@@ -346,25 +411,48 @@ clean_raw_data <-
       # remove extra spaces
       mutate(across(where(is.character), ~ str_squish(.x))) %>%
       # replace 0.0 lat, lon with NA
-      mutate(across(c(latitude, longitude), ~ if_else(. == 0, NA_real_, .))) %>%
+      mutate(across(c(latitude, longitude), ~ if_else(. == 0, NA_real_, .)))
+    
+    ## Update incorrect coordinates -----
+    
+    rcra_adj_coords <-
+      rcra_clean_strings %>%
       # identify incorrect lat, lon
       mutate(latitude_corrected = abs(latitude) > 90,
              longitude_corrected = abs(longitude) > 180,
-             latitude = if_else(abs(latitude) > 90, fix_coord(latitude), latitude),
-             longitude = if_else(abs(longitude) > 180, fix_coord(longitude), longitude))
+             # correct too large of lat/lons
+             latitude = if_else(latitude_corrected, fix_coord(latitude), latitude),
+             longitude = if_else(latitude_corrected, fix_coord(longitude), longitude),
+             # resolve incorrect positive longitudes and negative latitudes
+             latitude_corrected = latitude_corrected | (state_code %in% state.abb & latitude < 0),
+             longitude_corrected = longitude_corrected | (state_code %in% state.abb & longitude > 0),
+             longitude = if_else(longitude_corrected & longitude > 0, -longitude, longitude),
+             latitude = if_else(latitude_corrected & latitude < 0, -latitude, latitude))
     
-    ## Remove duplicates -----
+    ## Remove exact duplicates -----
     
     rcra_duplicates <-
-      rcra_clean_strings %>%
+      rcra_adj_coords %>%
       group_by(handler_id) %>%
       filter(n() > 1)
     
     if (nrow(rcra_duplicates) > 1){
+      
+      # store coordinate correction status
+      rcra_coords_adjustment <- 
+        rcra_adj_coords %>%
+        group_by(handler_id) %>%
+        arrange(handler_id, latitude_corrected, longitude_corrected) %>%
+        summarise(
+          latitude_corrected = first(latitude_corrected),
+          longitude_corrected = first(longitude_corrected),
+          .groups = "drop"
+        )
+      
       rcra_remove_exact_duplicates <-
-        rcra_clean_strings %>%
+        rcra_adj_coords %>%
         # remove company name for duplicate identification
-        select(-company_name, -company_name_2) %>% 
+        select(-company_name, -company_name_2, -latitude_corrected, -longitude_corrected) %>% 
         # remove exact duplicates
         distinct() %>%
         # count non-na rows
@@ -378,18 +466,20 @@ clean_raw_data <-
         # create duplicate flag
         mutate(is_duplicate = n() > 1) %>%
         ungroup() %>%
-        select(-non_missing, -conflict_flag)
+        select(-non_missing, -conflict_flag) %>%
+        left_join(rcra_coords_adjustment, by = "handler_id")
       
       rcra_for_match <-
         rcra_remove_exact_duplicates
     } else {
       rcra_for_match <-
-        rcra_clean_strings
+        rcra_adj_coords
     }
     
     print(glue::glue(nrow(rcra_for_match), " cleaned RCRA records"))
     
     
+    # Return all datasets -----
     return(list(frp = frp_for_match,
                 rmp = rmp_for_match,
                 rcra = rcra_for_match))
