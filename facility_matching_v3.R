@@ -10,8 +10,6 @@ library(stringdist)
 library(stringr)
 library(tidyr)
 
-# chec full run with clean_raw_data
-g
 # Clean data -----
 
 source("gdrive/OLEM/olem-matching/function_clean_raw_data.R")
@@ -30,38 +28,64 @@ rmp <-
   slice_max(order_by = facility_id, n = 1, with_ties = TRUE) %>%
   ungroup()
 
+# Check for duplicates ------
+
+frp_duplicates <-
+  frp %>%
+  count(facility_id) %>%
+  filter(n > 1) %>%
+  print()
+
+frp_duplicates_full <-
+  frp_duplicates %>%
+  left_join(frp) %>%
+  select(-n, -latitude_corrected, -longitude_corrected, -is_duplicate) %>%
+  glimpse()
+
+qa_dir <- glue::glue("gdrive/OLEM/olem-matching/output_data/v3/qa/")
+if (!dir.exists(qa_dir)) {
+  dir.create(qa_dir)
+}
+write.csv(frp_duplicates_full, glue::glue(qa_dir, "duplicates_frp.csv"), row.names = FALSE)
+
+rmp_duplicates <-
+  rmp %>%
+  count(epa_facility_id) %>%
+  filter(n > 1) %>%
+  print()
+
+rcra_duplicates <-
+  rcra %>%
+  count(handler_id) %>%
+  filter(n > 1) %>%
+  print()
+
+# Check for unique ID count -----
+
+frp_ids <-
+  frp %>%
+  count(facility_id) %>%
+  filter(!is.na(facility_id))
+print(glue::glue("Unique FRP Facility IDs: ", nrow(frp_ids)))
+
+rmp_ids <-
+ rmp %>%
+ count(epa_facility_id) %>%
+ filter(!is.na(epa_facility_id))
+print(glue::glue("Unique RMP EPA Facility IDs: ", nrow(rmp_ids)))
+
+rcra_ids <-
+ rcra %>%
+ count(handler_id) %>%
+ filter(!is.na(handler_id))
+print(glue::glue("Unique RCRA Handler IDs: ", nrow(rcra_ids)))
+
 # DEFINE FILES FOR MATCHING - REQUIRES USER INPUT - RUN FROM HERE -----
 rm(list = setdiff(ls(), c("frp", "rcra","rmp")))
 gc()
 facility_A_name <- "rmp" # frp or rmp
 facility_B_name <- "rcra" #rmp or rcra
 version <- "v3"
-
-# number of RMP values that still have duplicates
-# rmp_duplicates <-
-#  rmp %>%
-#  count(epa_facility_id) %>%
-#  filter(n > 1) %>%
-#  glimpse()
-#    
-# # unique FRP facility ids
-# frp_ids <-
-#  frp %>%
-#  count(facility_id) %>%
-#  filter(!is.na(facility_id)) %>%
-#  glimpse
-# 
-# rmp_ids <-
-#  rmp %>%
-#  count(epa_facility_id) %>%
-#  filter(!is.na(epa_facility_id)) %>%
-#  glimpse()
-# 
-# rcra_ids <-
-#  rcra %>%
-#  count(facility_id) %>%
-#  filter(!is.na(facility_id)) %>%
-#  glimpse()
 
 # Match facilities -----
 
@@ -309,12 +333,17 @@ gc()
 all_matches <-
   bind_rows(
     fuzzy_matches,
-    exact_matches)
+    exact_matches) %>%
+  mutate(match_category = case_when(
+    str_detect(match_type, "exact") ~ "exact",
+    str_detect(match_type, "fuzzy") ~ "fuzzy",
+    TRUE ~ NA_character_))
 
 base_cols_clean <- c(
   "match_id_A", 
   "match_id_B",
   "match_type",
+  "match_category",
   "confidence_score",
   "name_A", "name_B",
   "addr_A", "addr_B",
@@ -344,6 +373,7 @@ rm(fuzzy_matches, exact_matches)
 # pick exact over fuzzy match if duplicates exist based on confidence score
 best_matches <-
   all_matches_clean %>%
+  arrange(match_id_A, match_id_B, match_category, confidence_score) %>%
   group_by(match_id_A, match_id_B) %>%
   slice_max(confidence_score, with_ties = FALSE) %>%
   arrange(match_id_A, match_id_B) %>%
@@ -351,19 +381,9 @@ best_matches <-
 
 rm(all_matches)
 
-# filter matches to those exceeding 85%
-accepted_matches <-
-  best_matches %>%
-  mutate(match_category = case_when(
-             str_detect(match_type, "exact") ~ "exact",
-             str_detect(match_type, "fuzzy") ~ "fuzzy",
-             TRUE ~ NA_character_))
-
-rm(best_matches)
-
 # count match category for ID
 accepted_match_cat_facid_a <-
-  accepted_matches %>%
+  best_matches %>%
   group_by(match_id_A) %>%
   arrange(match_id_A, match_category) %>%
   slice(1) %>%
@@ -380,7 +400,7 @@ write.csv(accepted_match_cat_facid_a,
           glue::glue(save_dir, "/matches", final_suffix_A, final_suffix_B, "_match_id", final_suffix_A, "_count.csv"), row.names = FALSE)
 
 accepted_match_cat_facid_b <-
-  accepted_matches %>%
+  best_matches %>%
   group_by(match_id_B) %>%
   arrange(match_id_B, match_category) %>%
   slice(1) %>%
@@ -392,7 +412,7 @@ write.csv(accepted_match_cat_facid_b,
 
 # count match type for ID
 accepted_match_type_facid_a <-
-  accepted_matches %>%
+  best_matches %>%
   group_by(match_id_A) %>%
   arrange(match_id_A, match_type) %>%
   slice(1) %>%
@@ -403,7 +423,7 @@ write.csv(accepted_match_type_facid_a,
           glue::glue(save_dir, "/matches", final_suffix_A, final_suffix_B, "_match_id", final_suffix_A, "_matchtype.csv"), row.names = FALSE)
 
 accepted_match_type_facid_b <-
-  accepted_matches %>%
+  best_matches %>%
   group_by(match_id_B) %>%
   arrange(match_id_B, match_type) %>%
   slice(1) %>%
@@ -413,28 +433,31 @@ accepted_match_type_facid_b <-
 write.csv(accepted_match_type_facid_b,
           glue::glue(save_dir, "/matches", final_suffix_A, final_suffix_B, "_match_id", final_suffix_B, "_matchtype.csv"), row.names = FALSE)
 
-if (facility_A_name == "rmp") {
-  accepted_matches_adj <-
-    accepted_matches %>%
-    rename("epa_facility_id_A" = "match_id_A",
-           "handler_id_B" = "match_id_B")
-} else if(facility_B_name == "rmp") {
-    accepted_matches_adj <-
-      accepted_matches %>%
+if (facility_A_name == "frp") {
+  if (facility_B_name == "rmp") {
+    best_matches_adj <-
+      best_matches %>%
       rename("facility_id_A" = "match_id_A",
              "epa_facility_id_B" = "match_id_B")
-} else if (facility_B_name == "rcra") {
-  accepted_matches_adj <-
-    accepted_matches %>%
-    rename("handler_id_B" = "match_id_B")
+  } else {
+    best_matches_adj <-
+      best_matches %>%
+      rename("facility_id_A" = "match_id_A",
+             "handler_id_B" = "match_id_B")
+  }
+  } else if (facility_A_name == "rmp") {
+  best_matches_adj <-
+    best_matches %>%
+    rename("epa_facility_id_A" = "match_id_A",
+           "handler_id_B" = "match_id_B")
 } else {
-  accepted_matches_adj <-
-    accepted_matches
+  best_matches_adj <-
+    best_matches
 }
 
 # format final matching
 final_matches <-
-  accepted_matches_adj %>%
+  best_matches_adj %>%
   mutate(confidence_score = round(confidence_score, 4)) %>%
   mutate(across(where(is.character), ~replace_na(., ""))) %>%
   relocate(match_category, .after = match_type) %>%
